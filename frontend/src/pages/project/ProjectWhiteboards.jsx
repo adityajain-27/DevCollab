@@ -1,10 +1,11 @@
 // pages/project/ProjectWhiteboards.jsx — collaborative whiteboards (Excalidraw)
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { Plus, Palette, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Maximize2, Minimize2, Palette } from 'lucide-react';
 import { Excalidraw } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 import { useUI } from '../../store/ui';
+import { ChevronDown } from 'lucide-react';
 import { useAuth } from '../../store/auth';
 import { useTheme } from '../../store/theme';
 import { whiteboards as wbApi } from '../../lib/api';
@@ -19,7 +20,7 @@ import s from '../../styles/modules/Whiteboards.module.css';
 export default function ProjectWhiteboards() {
   const { workspaceId, projectId, project, canEdit } = useOutletContext();
   const { user } = useAuth();
-  const { toast, confirm } = useUI();
+  const { toast, confirm, sidebarOpen } = useUI();
   const themeKind = useTheme(s => s.getActive().kind);
   // Scoped presence: only people viewing the Whiteboards section right now.
   const online = useScopedPresence(project?._id ? `wb:${project._id}` : null);
@@ -31,6 +32,7 @@ export default function ProjectWhiteboards() {
   const [wbModal, setWbModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const elementsRef = useRef([]);
   const isRemoteUpdateRef = useRef(false);
   const isDrawingRef = useRef(false);
@@ -166,6 +168,14 @@ export default function ProjectWhiteboards() {
     return () => { saveNow(); };
   }, [saveNow]);
 
+  // Escape key exits fullscreen
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e) => { if (e.key === 'Escape') setIsFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isFullscreen]);
+
   const selectWb = (wb) => {
     if (activeWb?._id === wb._id) return;
     if (activeWb) {
@@ -246,49 +256,28 @@ export default function ProjectWhiteboards() {
   };
 
   return (
-    <div className={s.page}>
-      <div className={s.header}>
-        <div>
-          <h1 className={s.title}>Whiteboards</h1>
-          <p className={s.subtitle}>Real-time collaborative canvas · {project?.name}</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <PresenceBar users={online} size={28} label="here" />
-          {canEdit && (
-            <Button variant="primary" size="md" onClick={() => setWbModal(true)}>
-              <Plus size={14} /> New Whiteboard
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className={s.body}>
-        <aside className={s.sideList}>
-          <div className={s.sideHead}>
-            <span>Whiteboards</span>
-            <span className={s.count}>{whiteboards.length}</span>
+    <div
+      className={`${s.page} ${isFullscreen ? s.pageFullscreen : ''}`}
+      style={isFullscreen ? { left: sidebarOpen ? '240px' : '0' } : undefined}
+    >
+      {!isFullscreen && (
+        <div className={s.header}>
+          <div>
+            <h1 className={s.title}>Whiteboards</h1>
+            <p className={s.subtitle}>Real-time collaborative canvas · {project?.name}</p>
           </div>
-          {whiteboards.length === 0 ? (
-            <p className={s.empty}>No whiteboards.<br/>Create one to start.</p>
-          ) : (
-            whiteboards.map(wb => (
-              <div
-                key={wb._id}
-                className={`${s.item} ${activeWb?._id === wb._id ? s.itemActive : ''}`}
-              >
-                <button className={s.itemBtn} onClick={() => selectWb(wb)}>
-                  <Palette size={13} /> {wb.name}
-                </button>
-                {canEdit && (
-                  <button className={s.itemDel} onClick={() => handleDelete(wb)} title="Delete">
-                    <Trash2 size={11} />
-                  </button>
-                )}
-              </div>
-            ))
-          )}
-        </aside>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <PresenceBar users={online} size={28} label="here" />
+            {canEdit && (
+              <Button variant="primary" size="md" onClick={() => setWbModal(true)}>
+                <Plus size={14} /> New Whiteboard
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
+      <div className={`${s.body} ${isFullscreen ? s.bodyFullscreen : ''}`}>
         <div className={s.canvas}>
           {!activeWb ? (
             <div className={s.placeholder}>
@@ -302,11 +291,80 @@ export default function ProjectWhiteboards() {
             </div>
           ) : (
             <>
-              <div className={s.canvasHead}>
-                <span className={s.canvasName}>{activeWb.name}</span>
-                <span className={s.canvasMeta}>● Live · Auto-save 10s</span>
-              </div>
-              <div className={s.canvasArea}>
+              {!isFullscreen && (
+                <div className={s.canvasHead}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <select
+                      className={s.wbSelect}
+                      value={activeWb._id}
+                      onChange={(e) => {
+                        const wb = whiteboards.find(w => w._id === e.target.value);
+                        if (wb) selectWb(wb);
+                      }}
+                    >
+                      {whiteboards.map(wb => (
+                        <option key={wb._id} value={wb._id}>{wb.name}</option>
+                      ))}
+                    </select>
+                    {canEdit && (
+                      <button className={s.deleteBtn} onClick={() => handleDelete(activeWb)} title="Delete Whiteboard">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span className={s.canvasMeta}>● Live · Auto-save 10s</span>
+                    <button
+                      className={s.fullscreenBtn}
+                      onClick={() => setIsFullscreen(true)}
+                      title="Enter fullscreen"
+                    >
+                      <Maximize2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {isFullscreen && (
+                <>
+                  <div className={s.overlayLeft}>
+                    <select
+                      className={s.wbSelectFullscreen}
+                      value={activeWb._id}
+                      onChange={(e) => {
+                        const wb = whiteboards.find(w => w._id === e.target.value);
+                        if (wb) selectWb(wb);
+                      }}
+                    >
+                      {whiteboards.map(wb => (
+                        <option key={wb._id} value={wb._id}>{wb.name}</option>
+                      ))}
+                    </select>
+                    {canEdit && (
+                      <button className={s.deleteBtn} onClick={() => handleDelete(activeWb)} title="Delete Whiteboard">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <div className={s.overlayControls}>
+                    <PresenceBar users={online} size={24} label="here" />
+                    {canEdit && (
+                      <Button variant="primary" size="sm" onClick={() => setWbModal(true)}>
+                        <Plus size={12} /> New Whiteboard
+                      </Button>
+                    )}
+                    <button
+                      className={s.fullscreenBtn}
+                      onClick={() => setIsFullscreen(false)}
+                      title="Exit fullscreen"
+                    >
+                      <Minimize2 size={14} />
+                    </button>
+                  </div>
+                </>
+              )}
+
+              <div className={`${s.canvasArea} ${isFullscreen ? s.canvasAreaFullscreen : ''}`}>
                 <Excalidraw
                   key={activeWb._id}
                   excalidrawAPI={(api) => setExcalidrawAPI(api)}
